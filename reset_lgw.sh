@@ -1,101 +1,59 @@
-#!/bin/sh
+#!/bin/bash
 
-# This script is intended to be used on all sx130x platforms. It performs
-# the following actions:
-#       - export/unpexort GPIO pin ${CONCENTRATOR_RESET_PIN} used to reset the SX130x chip and to enable the LDOs
-#       - can also be used to reset other functions like the optional SX1261 radio used for LBT/Spectral Scan, SX1302 power enable,
-#           or AD5338R reset, by changing the value of CONCENTRATOR_RESET_PIN
-#
-# Usage examples:
-#       CONCENTRATOR_RESET_PIN=23 ./reset_lgw.sh stop
-#       CONCENTRATOR_RESET_PIN=23 ./reset_lgw.sh start
-#
-# CONCENTRATOR_RESET_PIN can also be set by passing it in as the second parameter. Eg:
-#       ./reset_lgw.sh stop 23
-#       ./reset_lgw.sh start 23
-#
-# This script is inspired by the original upstream versions:
-#   - https://github.com/NebraLtd/lora_gateway/blob/971c52e3e0f953102c0b057c9fff9b1df8a84d66/reset_lgw.sh
-#   - https://github.com/NebraLtd/sx1302_hal/blob/6324b7a568ee24dbd9c4da64df69169a22615311/tools/reset_lgw.sh
+# ------------------------------------------------------------
+# Universal reset_lgw.sh - Auto-detects Pi2/4/5, GPIOD + Sysfs
+# ------------------------------------------------------------
 
-if [ -n "${CONCENTRATOR_RESET_PIN_OVERRIDE+x}" ]; then
-    echo "CONCENTRATOR_RESET_PIN_OVERRIDE parameter found, using this value from the environment (val=${CONCENTRATOR_RESET_PIN_OVERRIDE})"
-    CONCENTRATOR_RESET_PIN=${CONCENTRATOR_RESET_PIN_OVERRIDE}
-elif [ -z "$2" ]; then
-    echo "CONCENTRATOR_RESET_PIN parameter not passed in, using value from the environment (val=${CONCENTRATOR_RESET_PIN})"
+# -------- BOARD DETECTION --------
+MODEL=$(tr -d '\0' < /proc/device-tree/model)
+echo "[INFO] Detected board: $MODEL"
+
+# -------- GPIO & CHIP CONFIG --------
+if echo "$MODEL" | grep -q "Raspberry Pi 5"; then
+    RESET_GPIO=17  # Example for Pi5 (adjust to match concentrator reset pin)
+    GPIO_CHIP="gpiochip4"  # RP1 GPIO typically gpiochip4
+    echo "[INFO] Pi 5 detected: Using GPIO $RESET_GPIO on $GPIO_CHIP"
 else
-    CONCENTRATOR_RESET_PIN=$2
+    RESET_GPIO=17  # Default for Pi4 and earlier
+    GPIO_CHIP="gpiochip0"
+    echo "[INFO] Pi 4 or earlier detected: Using GPIO $RESET_GPIO on $GPIO_CHIP"
 fi
 
-if [ -n "${SX125x_RESET_PIN_OVERRIDE+x}" ]; then
-    echo "SX125x_RESET_PIN_OVERRIDE parameter found, using this value from the environment (val=${SX125x_RESET_PIN_OVERRIDE})"
-    SX125x_RESET_PIN=${SX125x_RESET_PIN_OVERRIDE}
-fi
+# -------- RESET SEQUENCE --------
+if command -v gpioset &> /dev/null; then
+    echo "[INFO] Using GPIOD (gpioset) for reset"
 
-WAIT_GPIO() {
+    # Pull reset low -> high -> low (with delays)
+    gpioset ${GPIO_CHIP} ${RESET_GPIO}=0
     sleep 0.1
-}
+    gpioset ${GPIO_CHIP} ${RESET_GPIO}=1
+    sleep 0.1
+    gpioset ${GPIO_CHIP} ${RESET_GPIO}=0
+    sleep 0.1
 
-init() {
-    # setup GPIOs
-    echo "${CONCENTRATOR_RESET_PIN}" > /sys/class/gpio/export; WAIT_GPIO
+else
+    echo "[INFO] Using Sysfs GPIO for reset"
 
-    # set GPIOs as output
-    echo "out" > "/sys/class/gpio/gpio${CONCENTRATOR_RESET_PIN}/direction"; WAIT_GPIO
-    
-    if [ -n "${SX125x_RESET_PIN+x}" ]
-    then
-      echo "${SX125x_RESET_PIN}" > /sys/class/gpio/export; WAIT_GPIO
-      echo "out" > "/sys/class/gpio/gpio${SX125x_RESET_PIN}/direction"; WAIT_GPIO
-    fi
-}
+    GPIO_PATH="/sys/class/gpio/gpio${RESET_GPIO}"
 
-reset() {
-    echo "CoreCell reset through GPIO${CONCENTRATOR_RESET_PIN}..."
-
-    # If #reset is called before #init, gpio may not be available
-    # This prevents file not found errors from showing in the logs
-    if [ -d "/sys/class/gpio/gpio${CONCENTRATOR_RESET_PIN}" ]
-    then
-        echo "1" > "/sys/class/gpio/gpio${CONCENTRATOR_RESET_PIN}/value"; WAIT_GPIO
-        echo "0" > "/sys/class/gpio/gpio${CONCENTRATOR_RESET_PIN}/value"; WAIT_GPIO
+    # Export GPIO if not already exported
+    if [ ! -d "$GPIO_PATH" ]; then
+        echo $RESET_GPIO > /sys/class/gpio/export
+        sleep 0.1
     fi
 
-    if [ -d "/sys/class/gpio/gpio${SX125x_RESET_PIN}" ]
-    then
-        echo "SX125x reset through GPIO${SX125x_RESET_PIN}..."
-        echo "1" > "/sys/class/gpio/gpio${SX125x_RESET_PIN}/value"; WAIT_GPIO
-        echo "0" > "/sys/class/gpio/gpio${SX125x_RESET_PIN}/value"; WAIT_GPIO
-    fi
-}
+    # Set direction and perform reset
+    echo "out" > ${GPIO_PATH}/direction
+    echo 0 > ${GPIO_PATH}/value
+    sleep 0.1
+    echo 1 > ${GPIO_PATH}/value
+    sleep 0.1
+    echo 0 > ${GPIO_PATH}/value
+    sleep 0.1
 
-term() {
-    # cleanup all GPIOs
-    if [ -d "/sys/class/gpio/gpio${CONCENTRATOR_RESET_PIN}" ]
-    then
-        echo "${CONCENTRATOR_RESET_PIN}" > /sys/class/gpio/unexport; WAIT_GPIO
-    fi
+    # Optional: unexport to release GPIO
+    echo $RESET_GPIO > /sys/class/gpio/unexport
+fi
 
-    if [ -d "/sys/class/gpio/gpio${SX125x_RESET_PIN}" ]
-    then
-        echo "${SX125x_RESET_PIN}" > /sys/class/gpio/unexport; WAIT_GPIO
-    fi
-}
-
-case "$1" in
-    start)
-    term # just in case
-    init
-    reset
-    ;;
-    stop)
-    reset
-    term
-    ;;
-    *)
-    echo "Usage: $0 {start|stop}"
-    exit 1
-    ;;
-esac
-
+echo "[INFO] Reset sequence completed."
 exit 0
