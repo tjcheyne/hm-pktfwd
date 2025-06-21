@@ -44,7 +44,7 @@ jobs:
         uses: docker/metadata-action@v4
         with:
           images: |
-            nebraltd/hm-pktfwd
+            tjcheyne/hm-pktfwd
             ghcr.io/${{ github.repository }}
           tags: |
             type=sha,prefix=${{ matrix.arch }}-
@@ -63,8 +63,8 @@ jobs:
           provenance: false
           labels: ${{ steps.meta.outputs.labels }}
           tags: ${{ steps.meta.outputs.tags }}
-          cache-from: type=registry,ref=nebraltd/hm-pktfwd:buildcache
-          cache-to: type=registry,ref=nebraltd/hm-pktfwd:buildcache,mode=max
+          cache-from: type=registry,ref=tjcheyne/hm-pktfwd:buildcache
+          cache-to: type=registry,ref=tjcheyne/hm-pktfwd:buildcache,mode=max
 
       - name: Image digest
         run: echo ${{ steps.docker_build.outputs.digest }}
@@ -100,7 +100,7 @@ jobs:
         uses: docker/metadata-action@v4
         with:
           images: |
-            nebraltd/hm-pktfwd
+            tjcheyne/hm-pktfwd
             ghcr.io/${{ github.repository }}
           flavor: |
             latest=true
@@ -111,8 +111,8 @@ jobs:
       - name: Create multi-arch images
         run: |
           tags=(${{ steps.meta.outputs.tags }})
-          docker buildx imagetools create -t ${tags[0]} -t ${tags[1]} -t ${tags[2]} nebraltd/hm-pktfwd:arm64-${{ github.sha }} nebraltd/hm-pktfwd:amd64-${{ github.sha }}
-          docker buildx imagetools create -t ${tags[3]} -t ${tags[4]} -t ${tags[5]} ghcr.io/nebraltd/hm-pktfwd:arm64-${{ github.sha }} ghcr.io/nebraltd/hm-pktfwd:amd64-${{ github.sha }}
+          docker buildx imagetools create -t ${tags[0]} -t ${tags[1]} -t ${tags[2]} tjcheyne/hm-pktfwd:arm64-${{ github.sha }} tjcheyne/hm-pktfwd:amd64-${{ github.sha }}
+          docker buildx imagetools create -t ${tags[3]} -t ${tags[4]} -t ${tags[5]} ghcr.io/tjcheyne/hm-pktfwd:arm64-${{ github.sha }} ghcr.io/tjcheyne/hm-pktfwd:amd64-${{ github.sha }}
 
       - name: Update repo description
         uses: peter-evans/dockerhub-description@v3
